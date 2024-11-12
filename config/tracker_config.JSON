@@ -1,0 +1,8 @@
+{
+    "ip": "127.0.0.1",
+    "port": 6001,
+    "announce_interval": 1800,
+    "cleanup_interval": 1800,
+    "max_peers_per_torrent": 50,
+    "log_level": "INFO"
+}
