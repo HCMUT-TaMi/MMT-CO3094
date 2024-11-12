@@ -1,0 +1,9 @@
+{
+    "download_path": "data/downloads",
+    "upload_path": "data/uploads",
+    "max_connections": 10,
+    "piece_size": 524288,
+    "log_level": "INFO",
+    "tracker_host": "localhost",
+    "tracker_port": 6001
+}
