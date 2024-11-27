@@ -19,3 +19,6 @@ class MetaInfo:
     files: List[Dict]
     total_size: int
     name: str
+
+        
+        

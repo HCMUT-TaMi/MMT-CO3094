@@ -36,20 +36,7 @@ class PeerManager:
             self.pieces[peer_id] = pieces
 
     def get_peers_for_pieces(self, wanted_pieces: List[str], exclude_peer: str) -> List[Dict]:
-        with self.lock:
-            available_peers = []
-            for peer_id, peer_pieces in self.pieces.items():
-                if peer_id != exclude_peer:
-                    if any(piece in peer_pieces for piece in wanted_pieces):
-                        peer = self.peers.get(peer_id)
-                        if peer:
-                            available_peers.append({
-                                'peer_id': peer_id,
-                                'ip': peer['ip'],
-                                'port': peer['port'],
-                                'pieces': peer_pieces
-                            })
-            return available_peers
+        return available_peers
 
     def cleanup_stale_peers(self, max_age: int) -> None:
         """Remove peers that haven't been seen recently"""

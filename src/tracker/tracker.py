@@ -3,9 +3,15 @@ import threading
 import json
 import time
 import logging
+import hashlib
 from typing import Dict, Optional
 from .peer_manager import PeerManager
 from .metainfo import MetaInfo
+
+
+#Handle Multi-Threads
+from _thread import *
+import threading
 
 class Tracker:
     """
@@ -19,7 +25,7 @@ class Tracker:
 
     Attributes:
     @config: A dictionary containing the tracker configuration.
-    @torrents: A dictionary of torrent metainfo indexed by info_hash.
+    @torrents: A dictionary of torrent metainfo hash indexed by info_hash.
     @peer_managers: A dictionary of PeerManager instances indexed by info_hash.
     @lock: A threading lock to protect shared data structures from race condition.
     @running: A boolean flag indicating if the server is running
@@ -112,11 +118,15 @@ class Tracker:
         """
         try:
             data = client_socket.recv(4096)
+
             if not data:
                 return
+            
             request = json.loads(data.decode())
+
             if request['type'] == 'announce':
                 self._handle_announce(client_socket, request)
+
         except Exception as e:
             logging.error(f"Error handling peer: {e}")
         finally:
@@ -131,7 +141,7 @@ class Tracker:
         """
         try:
             info_hash = request['info_hash']
-            peer_id = request['peer_id']
+            peer_id = request['peer_id'] 
             port = request['port']
             peer_manager = self._get_peer_manager(info_hash)
             peer_manager.add_peer(peer_id, client_socket.getpeername()[0], port)
