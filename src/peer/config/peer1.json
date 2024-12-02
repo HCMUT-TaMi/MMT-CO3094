@@ -1,0 +1,9 @@
+{
+    "file_path": "data/downloads",
+    "frags_path": "data/uploads",
+    "user_port": 1234, 
+    "user_name": "P1",
+    "piece_size": 524288,
+    "tracker_host": "localhost",
+    "tracker_port": 6880 
+}

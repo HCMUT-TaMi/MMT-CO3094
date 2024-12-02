@@ -33,13 +33,13 @@ class FileManager:
         "
     """
     def __init__(self, name: str):
-        self.logger = logging.getLogger(__name__)
-        self.path = os.path.join("/data",name)
+        # self.logger = logging.getLogger(__name__)
+        self.path = os.path.join("./data",name)
         os.makedirs(self.path, exist_ok=True)
 
-        self.torrent_path = os.path.join(self.path,"/torrents.json")
+        self.torrent_path = os.path.join(self.path,"torrents.json")
         # self.frags_path = os.path.join(self.path,"/frags") 
-        self.files_path = os.path.join(self.path,"/files")
+        self.files_path = os.path.join(self.path,"files")
 
         # os.makedirs(self.frags_path,exist_ok=True)
         os.makedirs(self.files_path,exist_ok=True)
@@ -62,6 +62,32 @@ class FileManager:
             "frags_path": self.frags_path, 
             "files_path": self.files_path
         }
+        
+    def getFileAt(self, inf: str): 
+        if inf in self.torrents.keys():
+            return {
+                'type': 'return',
+                'name': self.torrents[inf].file_name,
+                'size': self.torrents[inf].size
+            }
+            
+    def creatEmptyFile(self, name:str, size: int): 
+        path = os.path.join(self.files_path,name)
+        with open(path, 'wb') as f:
+            f.seek(size - 1)
+            f.write(b'\0')
+            
+        #   Continue with hash here 
+        newTorrent = FileInfo(
+            file_name = name, 
+            fragment_hash = {}, 
+            total_fragments = 0, 
+            size = size 
+        )
+        
+        self.torrents.update({
+            CLI.sha1_encode(name): newTorrent
+        })
 
 
     """
@@ -77,7 +103,6 @@ class FileManager:
             self,
             info: dict[str,str,str,int,int], # all of the info is in SHA1 form
             data, 
-            lock
     ): 
         
         #   Create new Torrent for Fragments
@@ -88,8 +113,7 @@ class FileManager:
             info["size"] 
         ) 
         self.torrents.update({info["info"]: new_torrent})
-
-        #   Update parent Torrent
+            
         parent_torrent = self.torrents[info["parent"]]
         #   Get new Frag_num = Hash_str 
         parent_torrent.fragment_hash.update({info["frag_num"] : info["info"]})
@@ -97,6 +121,8 @@ class FileManager:
         # pathToFrags = os.path.join(self.frags_path,info["info"])
         pathToParent = os.path.join(self.files_path,self.torrents[info["parent"]].file_name)
         offset = (info["frag_num"] - 1) * 512 * 1024
+        
+        print("file is writting !!!!")
 
         #   Update Real File          
         try:
@@ -105,10 +131,12 @@ class FileManager:
                     f.seek(offset)
                     f.write(data)
 
-                with lock: 
-                    #   Update the Json file of Torrent File
-                    with open(self.torrent_path, "") as fc: 
-                        
+                # with lock: 
+                #     #   Update the Json file of Torrent File
+                #     with open(self.torrent_path, "") as fc: 
+                #         fc.read()
+                
+                parent_torrent.total_fragments += 1
 
         except IOError as e:
             self.logger.error(f"Failed to write to parent file: {str(e)}")
@@ -124,9 +152,18 @@ class FileManager:
         self,
         info: str,
     ):
-        files = self.torrents[info]
+        # TODO if not found throw
+        if CLI.sha1_encode(info) not in self.torrents:
+            return {
+                "type": "Not Found"
+            }
+        
+        files = self.torrents[CLI.sha1_encode(info)]
         fragment_lists = [i for i in files.fragment_hash.keys()]
+        
+        print(f"we have: {fragment_lists}")
         return {
+            "type": "Found", 
             "frags": fragment_lists,  #interger lists
             "fragsNum": files.total_fragments, 
             "size": files.size 
@@ -146,6 +183,7 @@ class FileManager:
         info:   str, 
         frags:  list[int], 
     ):
+        info = CLI.sha1_encode(info)
         file_path = os.path.join(self.files_path,self.torrents[info].file_name)
         for frag in frags: 
             with open(file_path,"rb") as file: 
@@ -162,7 +200,7 @@ class FileManager:
         info: str, 
         len: int
     ):
-        num_of_fragment = len/(512*1024) 
+        num_of_fragment = (int) (len/(512*1024)) + 1
         torrent = self.torrents[info] 
         hash_name = CLI.sha1_encode(info)
         for i in range(1,num_of_fragment+1):
@@ -174,9 +212,9 @@ class FileManager:
                 size, 
             ) 
             #   Add Fragment into torrents
-            self.torrents.update(f"{hash_name}_{i}",new_torrent)
+            self.torrents.update({f"{hash_name}_{i}":new_torrent})
             #   Update Torrent list, which hash is it and the name of its 
-            torrent.fragment_hash.update(i,f"{hash_name}_{i}") 
+            torrent.fragment_hash.update({i:f"{hash_name}_{i}"}) 
             torrent.total_fragments += 1
 
         """
@@ -187,13 +225,28 @@ class FileManager:
             Work: 
                 First, 
         """
+        
+    def dump(self):
+        for frg in self.torrents.keys():
+            print(f"{frg}: {self.torrents[frg].file_name}\n {self.torrents[frg].fragment_hash}\n {self.torrents[frg].total_fragments}\n") 
+              
+        
+        
     def newFiles(
             self,
-            file:str,
+            file: str,
+            port: int,
     )->None: 
         
-        if CLI.sha1_encode(file) in self.torrents.items(): 
-            return 
+        inf = CLI.sha1_encode(file)
+        if CLI.sha1_encode(file) in self.torrents.keys(): 
+            return {
+                'type': 'announce',
+                'name': self.torrents[inf].file_name,
+                'info': inf, 
+                'size': self.torrents[inf].size,
+                'port': port
+            }
         
         #   TODO 
         #   IF file is not exits then throw exeptions 
@@ -205,5 +258,13 @@ class FileManager:
             0,
             size, 
         )
-        self.torrents.update(CLI.sha1_encode(file),new_torrent)
-        self.breakFile(file,size)
+        self.torrents.update({CLI.sha1_encode(file):new_torrent})
+        self.breakFile(CLI.sha1_encode(file),size)
+        return {
+                'type': 'announce',
+                'name': self.torrents[inf].file_name,
+                'info': inf,
+                'size': self.torrents[inf].size,
+                'port': port
+                
+        }

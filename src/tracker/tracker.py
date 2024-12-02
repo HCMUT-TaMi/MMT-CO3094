@@ -1,170 +1,217 @@
 import socket
 import threading
 import json
-import time
 import logging
-import hashlib
-from typing import Dict, Optional
-from .peer_manager import PeerManager
-from .metainfo import MetaInfo
+from typing import Dict, List, Set, Tuple
+from dataclasses import dataclass
+import time
 
-
-#Handle Multi-Threads
-from _thread import *
-import threading
-
+@dataclass
+class FileInfo:
+    file_name: str
+    file_hash: list[Tuple[int,str]]   #   File hash and User info
+    fragment_size: int = 512 * 1024 
+    size: int = 0
+    
+    
 class Tracker:
-    """
-    Class Tracker:
-    - Tracker server is responsible for managing torrent metadata and peer connections.
-    it uses a PeerManager to keep track of connected peers and their state.
-    - The tracker server listens for incoming connections from peers and responds to announce requests.
-    - It also periodically cleans up stale peer connections.
-    - The tracker server is started by calling the start() method.
-    - The server can be shutdown gracefully by calling the shutdown() method.
-
-    Attributes:
-    @config: A dictionary containing the tracker configuration.
-    @torrents: A dictionary of torrent metainfo hash indexed by info_hash.
-    @peer_managers: A dictionary of PeerManager instances indexed by info_hash.
-    @lock: A threading lock to protect shared data structures from race condition.
-    @running: A boolean flag indicating if the server is running
-    """
-    def __init__(self, config_file: str):
-        self.config = self._load_config(config_file)
-        self._setup_logging()
-        self.torrents: Dict[str, MetaInfo] = {}
-        self.peer_managers: Dict[str, PeerManager] = {}
+    def __init__(self, host: str = 'localhost', port: int = 6880):
+        self.host = host
+        self.port = port
+        
+        # Track files and their fragments across peers
+        self.files: Dict[str, FileInfo] = {}  # file_hash -> FileInfo
+        self.peers: Dict[Tuple[int,str], bool] = {}  # file_hash -> {(ip, port) -> PeerStatus}
+        self.online = True
+        
+        # Thread safety
         self.lock = threading.Lock()
-        self.running = False
-
-    def _setup_logging(self):
-        logging.basicConfig(
-            level=getattr(logging, self.config.get('log_level', 'INFO')),
-            format='%(asctime)s [%(levelname)s] %(message)s',
-            handlers=[
-                logging.FileHandler("logs/tracker.log"),
-                logging.StreamHandler()
-            ]
-        )
-
-    def _load_config(self, config_file: str) -> dict:
-        """
-        Load the tracker configuration from a JSON file.
-        """
-        try:
-            with open(config_file, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logging.error(f"Failed to load config: {e}")
-            return {
-                'port': 6001,
-                'ip': '127.0.0.1',
-                'announce_interval': 1800,
-                'cleanup_interval': 1800,
-                'max_peers_per_torrent': 50
-            }
-
+        
+        # Setup logging
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger("Tracker")
+        
+        # Start server
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.bind((host, port))
+        self.server_socket.listen(5)
+        
     def start(self):
-        """
-        Start the tracker server.
-
-        The server listens for incoming connections from peers and responds to announce requests.
-        It also periodically cleans up stale peer connections.
-
-        The server runs in a loop until the running flag is set to False.
-        """
+        """Start the tracker server"""
+        self.logger.info(f"Tracker starting on {self.host}:{self.port}")
+        thread = threading.Thread(target=self.command,args=(),daemon=True)
+        thread.start() 
+        
+        while self.online:
+            try:
+                client_socket, address = self.server_socket.accept()
+                client_handler = threading.Thread(
+                    target=self._handle_client,
+                    args=(client_socket, address)
+                )
+                client_handler.daemon = True
+                client_handler.start()
+            except Exception as e:
+                self.logger.error(f"Error accepting connection: {e}")
+                
+                
+    def command(self): 
+        while self.online: 
+            option = input() 
+            if option == "Quit": 
+                self.online = False 
+                break
+                 
+    def _handle_client(self, client_socket: socket.socket, address: Tuple[str, int]):
+        """Handle incoming client connections"""
         try:
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.bind((self.config.get('ip', '127.0.0.1'), int(self.config.get('port', 6001))))
-            self.server_socket.listen(int(self.config.get('listen_backlog', 50)))
-            self.running = True
-            logging.info(f"Tracker running on {self.config.get('ip', '127.0.0.1')}:{self.config.get('port', 6001)}")
-
-            # Start peer cleanup thread
-            # threading.Thread(target=self._peer_cleanup_daemon, daemon=True).start()
-
-            while self.running:
-                try:
-                    client_socket, address = self.server_socket.accept()
-                    logging.debug(f"Accepted connection from {address}")
-                    threading.Thread(target=self._handle_peer, args=(client_socket,), daemon=True).start()
-                except socket.timeout:
-                    continue
-                except Exception as e:
-                    logging.error(f"Error accepting connections: {e}")
-        except Exception as e:
-            logging.critical(f"Failed to start tracker: {e}")
-        finally:
-            self.shutdown()
-
-    def shutdown(self):
-        """
-        Shutdown the tracker server gracefully.
-        """
-        self.running = False
-        try:
-            if hasattr(self, 'server_socket'):
-                self.server_socket.close()
-                logging.info("Server socket closed.")
-        except Exception as e:
-            logging.error(f"Error closing server socket: {e}")
-
-    def _handle_peer(self, client_socket: socket.socket):
-        """
-        Handle incoming connections from peers.
-
-        The method reads the incoming data and processes the announce request.
-        """
-        try:
-            data = client_socket.recv(4096)
-
-            if not data:
-                return
+            data = client_socket.recv(1024).decode('utf-8')
+            request = json.loads(data)                
+            command = request.get('type')
             
-            request = json.loads(data.decode())
-
-            if request['type'] == 'announce':
-                self._handle_announce(client_socket, request)
-
+            with self.lock: 
+                print(f"Peer {address} require for command {command}")
+            if command == 'announce':
+                response = self._handle_register(request, address)
+            elif command == 'discover':
+                response = self._handle_discover(request)
+            elif command == 'hello':
+                response = self._handle_hello(address,request)
+            else:
+                response = {'status': 'error', 'message': 'Unknown command'}
+                
+            client_socket.send(json.dumps(response).encode('utf-8'))
+            
+        except json.JSONDecodeError:
+            self.logger.error(f"Invalid JSON from {address}")
+            client_socket.send(json.dumps({
+                'status': 'error',
+                'message': 'Invalid JSON format'
+            }).encode('utf-8'))
         except Exception as e:
-            logging.error(f"Error handling peer: {e}")
+            self.logger.error(f"Error handling client {address}: {e}")
         finally:
             client_socket.close()
-    
-    def _handle_announce(self, client_socket: socket.socket, request: Dict):
-        """
-        Handle announce requests from peers.
+            
+    def _handle_hello (self,address:tuple[int,str],request: dict):
+        with self.lock: 
+            self.peers[(address[0],request['port'])] = True 
+            print(f"User {(address[0],request['port'])} have connected and {self.peers[(address[0],request['port'])]} is here !!")
+            
+        return {
+                'status': 'success'
+        }
 
-        The method processes the announce request and updates the peer manager.
-        It also sends a response back to the peer with a list of other peers.
+    def _handle_register(self, request: dict, address: Tuple[str, int]) -> dict:
+
         """
-        try:
-            info_hash = request['info_hash']
-            peer_id = request['peer_id'] 
-            port = request['port']
-            peer_manager = self._get_peer_manager(info_hash)
-            peer_manager.add_peer(peer_id, client_socket.getpeername()[0], port)
-            response = {
-                'peers': peer_manager.get_peers_for_pieces(request['pieces'], peer_id)
+            Input: 
+                'type': 'announce',
+                'name': self.torrents[inf].file_name,
+                'info': inf,
+                'size': self.torrents[inf].size,
+                'port': int 
+        
+        """
+        """Handle peer registration with file information"""
+        
+        conn_addr = (address[0],request['port'])
+        print(f"info: {request['info']}")
+        
+        with self.lock:  
+            info = request['info']
+            if info not in self.files.keys():
+                new_file = FileInfo(
+                    file_name = request['name'],
+                    size = request['size'],
+                    file_hash = [conn_addr]
+                )
+                
+                self.files.update({info:new_file})
+                print(f"{info} with {self.files[info]}")
+                
+            else: 
+                if conn_addr not in self.files[info].file_hash:
+                    self.files[info].file_hash.append(conn_addr)
+            
+            print(f"Peer {conn_addr} have Announce for file {self.files[info].file_name}")
+            return {
+                'status': 'success',
+                'message': 'Registration successful'
             }
-            client_socket.sendall(json.dumps(response).encode())
-        except Exception as e:
-            logging.error(f"Error handling announce: {e}")
-
-    def _get_peer_manager(self, info_hash: str) -> PeerManager:
+            
+    def _handle_discover(self, request: dict) -> dict:
         """
-        Get the PeerManager instance for a specific torrent.
-
-        If the PeerManager does not exist, it creates a new instance.
+            "type": "discover", 
+            "info": str
+        Handle peer discovery requests
         """
-        with self.lock:
-            if info_hash not in self.peer_managers:
-                self.peer_managers[info_hash] = PeerManager()
-            return self.peer_managers[info_hash]
+        file_hash = self.files[request['info']].file_hash
+        peer_list = [x for x in file_hash if self.peers[x]]
         
-    
+        return {
+            "peers": peer_list,
+            "size": self.files[request['info']].size
+        }
+        
+            
+    # def _cleanup_stale_peers(self, file_hash: str):
+    #     """Remove peers that haven't been seen in the last 5 minutes"""
+    #     current_time = time.time()
+    #     stale_timeout = 300  # 5 minutes
+        
+    #     with self.lock:
+    #         if file_hash in self.peer_files:
+    #             stale_peers = [
+    #                 peer for peer, status in self.peer_files[file_hash].items()
+    #                 if current_time - status.last_seen > stale_timeout
+    #             ]
+                
+    #             for peer in stale_peers:
+    #                 del self.peer_files[file_hash][peer]
+                    
+    # def get_stats(self) -> dict:
+    #     """Get tracker statistics"""
+    #     with self.lock:
+    #         stats = {
+    #             'total_files': len(self.files),
+    #             'files': {}
+    #         }
+            
+    #         for file_hash, file_info in self.files.items():
+    #             peer_count = len(self.peer_files.get(file_hash, {}))
+    #             total_fragments = file_info.total_fragments
+                
+    #             # Calculate total availability
+    #             if peer_count > 0:
+    #                 fragment_availability = {i: 0 for i in range(total_fragments)}
+    #                 for peer_status in self.peer_files[file_hash].values():
+    #                     for fragment in peer_status.fragments:
+    #                         fragment_availability[fragment] += 1
+                            
+    #                 complete_copies = min(fragment_availability.values())
+    #             else:
+    #                 complete_copies = 0
+                    
+    #             stats['files'][file_hash] = {
+    #                 'name': file_info.file_name,
+    #                 'peer_count': peer_count,
+    #                 'complete_copies': complete_copies
+    #             }
+                
+    #         return stats
 
-        
+def main():
+    # Create and start tracker
+    tracker = Tracker('localhost', 6880)
+    try:
+        tracker.start()
+    except KeyboardInterrupt:
+        print("\nShutting down tracker...")
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        tracker.server_socket.close()
 
-        
+if __name__ == "__main__":
+    main()

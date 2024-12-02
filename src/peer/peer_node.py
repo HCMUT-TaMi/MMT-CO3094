@@ -6,6 +6,7 @@ import logging
 import peer_cli as CLI 
 import json 
 import logging
+import time
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 from file_manager import FileManager
@@ -14,8 +15,8 @@ class Node:
     def __init__ (
             self,
             peers: List[tuple[str,int]], #   Contain IP and Ports from receiving Peers from Tracker 
-            want_fragment: List[str],
-            file_name: str, #   Wanted file by User, HAVE BEEN HASHED
+            want_fragment: List[int],
+            file_name: str, #   Wanted file by User, Not have been hash sadly for some reason
             len : int, 
             manage: FileManager
         ): 
@@ -30,6 +31,9 @@ class Node:
         self._Total_Fragment = (int) (len / (512 * 1024)) + 1
         self.frag_size = 512 * 1024
         self._Want_Fragment = want_fragment
+        self.count = 0
+        self.local_lock = threading.Lock()
+        
         #   Thread Safety
         self.lock = threading.Lock()  
         self.manage = manage
@@ -46,9 +50,12 @@ class Node:
             self,
         ):
         try: 
+            start_time = time.time()
         #   DISCOVERY STAGE
 
              #   Create Threads for each peers to find out the peers which objects they own 
+            with self.lock: 
+                print("DISCOVERY STAGE")
             Discover_Threads = []
             for peer in self._Peers: 
                 thread = threading.Thread(target = self.discovery,args = (peer,),daemon = True)
@@ -60,11 +67,17 @@ class Node:
 
         #   CHOOSING  STAGE
             #   Dowload_list release dictionary of peers and corresponding fragments
+            with self.lock: 
+                print("GET LIST STAGE")
             dowload_list = self.rarest_first() 
+            
+            with self.lock: 
+                print(f"Download List: {dowload_list}") 
+                print("Download stage")
   
         #   DOWNLOAD  STAGE
             #   Ensure that there is parent files 
-            self.create_empty_file()
+            self.manage.creatEmptyFile(self._File,self.len)
             Dowload_Threads = []
 
             #   Create Threads for each peers and corresponding fragments in Interger 
@@ -75,9 +88,13 @@ class Node:
 
             for thread in Dowload_Threads: 
                 thread.join()
+                
+            end_time = time.time()
+            
+            print(f"Downloading Complete!, time cost: {end_time-start_time}")
 
-        except: 
-            logging(f"Problem connection with {peer[0]} and {peer[1]}\n")
+        except Exception as e: 
+            print(f"Error code: {e}")
 
     """ 
        Discovery: 
@@ -92,19 +109,21 @@ class Node:
     ): 
         try: 
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s: 
-                s.connect(peer)  #   peer[0] = IP, peer[1] = Port
+                s.connect((peer[0],peer[1]))  #   peer[0] = IP, peer[1] = Port
                 message = CLI.discovery(self._File)
-
                 s.send(json.dumps(message).encode('utf-8'))
-                bitwise = s.recv(1024).decode() 
+                bitwise = s.recv(512*1024).decode() 
+                bitwise = json.loads(bitwise)
+                print(bitwise)
 
                 #   Expect to get the Bitwise in datas 
                 with self.lock: 
-                    self._BitTrack.update(peer,bitwise) 
-        except: 
-            logger.error(f"Cannot connect to IP: {peer[0]} with Port: {peer[1]} \n Please try again \n")
-        finally: 
-            s.close()
+                    self._BitTrack.update({(peer[0],peer[1]):bitwise["frags"]}) 
+                    print(self._BitTrack)    
+                
+                    
+        except Exception as e: 
+            print(f" \n Error code: {e}")
 
     """
         RAREST_FIRST and PEER SELETION 
@@ -130,30 +149,32 @@ class Node:
 
     def rarest_first(self): 
         #   Counting the all the bit we have  
+
         count = [0] * self._Total_Fragment
 
         #   if User BitTrack having value of 1 then fragment counter + 1 
         for _,bittrack in self._BitTrack.items(): 
-            for i in range(0,self._Total_Fragment): 
+            for i in range(1,self._Total_Fragment + 1): 
                 if bittrack[i-1] == "1": 
-                    count[i] += 1
+                    count[i-1] += 1
         
         #   Using Sort to get Pieces that is rarest (on the [0] of the address)
-        sorted_pieces = sorted(len(self._Peers), key = lambda piece : count[piece])
-        peer_for_piece = {peer: [] for peer in self._Peers}       
+        sorted_pieces = sorted(range(self._Total_Fragment), key = lambda piece : count[piece])
+        peer_for_piece = {}
+        for peer in self._Peers:
+            peer_for_piece.update({(peer[0],peer[1]): []})   
         want_fragment = self._Want_Fragment
-
         for piece in sorted_pieces:
 
             #   If piece is not want by anyone then continue
-            if piece not in want_fragment:
+            if piece + 1 not in want_fragment:
                 continue
 
             #   Get all the users
-            piece_for_peer = [peer for peer,bit in self._BitTrack.items() if bit[piece - 1] == "1"] #   Add into List if Peer having the require bit]
+            piece_for_peer = [peer for peer,bit in self._BitTrack.items() if bit[piece] == "1"] #   Add into List if Peer having the require bit]
             min_peer = min(piece_for_peer,key = lambda x :len(peer_for_piece[x]))
-            peer_for_piece[min_peer].append(piece) 
-            want_fragment.remove(piece) 
+            peer_for_piece[min_peer].append(piece + 1) 
+            want_fragment.remove(piece+1) 
             
         return peer_for_piece 
         
@@ -165,51 +186,57 @@ class Node:
         mess[frag] = '1'
         return ''.join(mess)
     
-    def create_empty_file(self):
-        with open(self._File, 'wb') as f:
-            f.seek(self.len - 1)
-            f.write(b'\0')
-
-
+    # def create_empty_file(self):
+    #     with open(self._File, 'wb') as f:
+    #         f.seek(self.len - 1)
+    #         f.write(b'\0')
+    
 
     def download(self, peer: Tuple[str, int], frags: list[int]):
+        need = len(frags)
         count = 0
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-
-                #   Fragment number in Fragment lists
-                for frag in frags:
-
-                    #   Send File_Name and encode Fragment number 
-                    s.send(json.dumps(CLI.download(self._File,CLI.bit_encode(frag))).encode('utf-8'))
-
-                    #   Receive the fragment data in chunks
+                s.connect(peer)
+                message = CLI.download(self._File,CLI.bit_encode(frags,self._Total_Fragment))
+                s.send(json.dumps(message).encode('utf-8'))
+                
+                while count != need: 
                     fragment_data = b""
-                    expected_size = min(self.frag_size, self.len - self.frag_size * (frag - 1))  
+                    expected_size = min(self.frag_size, self.len - self.frag_size * (frags[count] - 1)) 
+
+                    lol = s.recv(4)
+                    expected_size = int.from_bytes(lol,'big')
+                    print(f"expected for downloading: {expected_size}") 
+                    
+                    # mess = {
+                    #         "frag": frag, 
+                    #         "data": frags_data, 
+                    #         "size": len(frags_data)
+                    #     }
+                    # fragment_data = s.recv(expected_size)
+                    
+                    
                     while len(fragment_data) < expected_size:
                         chunk = s.recv(expected_size)
-                        if not chunk:
-                            raise ConnectionError(f"Incomplete fragment received for index {frag}")
                         fragment_data += chunk
-
-                    logger.info(f"Downloaded {frag} fragments from {peer[0]}:{peer[1]}")
+                        if(len(fragment_data) == self.len - self.frag_size * (frags[len(frags) - 1] - 1)):
+                            break
                     
-                    # Write the fragment to the file
+                    print(f"Receiving {frags[count]} from {peer}")
+                    
                     fragList = {
-                        "info": f"{self._File}_{frag}", 
-                        "name": f"{self._File}_{frag}",
-                        "parent": self._File, 
-                        "size": expected_size,
-                        "frag_num": frag 
-                    }
-
-                    #   Write file
-                    self.manage.addFragment(fragList,fragment_data,self.lock)
+                             "info": f"{CLI.sha1_encode(self._File)}_{frags[count]}", 
+                             "name": f"{CLI.sha1_encode(self._File)}_{frags[count]}",
+                             "parent": CLI.sha1_encode(self._File), 
+                             "size": expected_size,
+                             "frag_num": frags[count] 
+                         }
+                                        
+                    count += 1 
+                    threading.Thread(target=self.manage.addFragment, args=(fragList,fragment_data,),daemon=True).start()
 
         except ConnectionError as e:
             print(f"Connection error: {e}")
         except Exception as e:
             print(f"Error connecting to IP: {peer[0]} on Port: {peer[1]}.\nDetails: {e}")
-
-        finally: 
-            s.close()

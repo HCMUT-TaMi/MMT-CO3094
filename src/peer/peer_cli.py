@@ -6,11 +6,13 @@ console = Console()
 #   For Peer_Node
 
 def HelloWord(
-    name: str
+    name: str, 
+    port: int
 )->dict:
     return{
         "type": "hello",
-        "info": name
+        "info": name,
+        "port": port
     }
 
 
@@ -47,10 +49,10 @@ def bit_encode(
     frags: list[int], 
     noFrags: int  
 )->str:
-    mess = '0' * noFrags
+    mess = ['0'] * noFrags
     for frag in frags: 
-        mess[frag] = '1'
-    return mess 
+        mess[frag-1] = '1'
+    return ''.join(mess)
 
 #   For Peer and Peer_Node
 def bit_decode(
@@ -61,11 +63,12 @@ def bit_decode(
 def ret_discovery(
     file: str, 
     frags: list[int], 
+    fragNo: int
 ):
     return {
         "type": "discovery_return",
         "info": file,
-        "frags": bit_encode(frags), 
+        "frags": bit_encode(frags,fragNo), 
     }
 
 def out():
