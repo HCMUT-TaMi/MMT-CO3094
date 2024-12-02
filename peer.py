@@ -1,13 +1,11 @@
 import subprocess
 import sys 
+import os
 
+os.chdir("./src/peer")
 script_path = "./src/peer/peer.py"
 
 if len(sys.argv) < 2: 
-    subprocess.run(["python", script_path])
+    subprocess.run(["python", "./peer.py"])
 else:
-    subprocess.run(["python", script_path, sys.argv[1]])
-
-
-        
-        
+    subprocess.run(["python", "./peer.py", sys.argv[1]])
