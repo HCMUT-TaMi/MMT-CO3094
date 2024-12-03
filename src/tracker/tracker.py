@@ -78,10 +78,11 @@ class Tracker:
             elif command == 'discover':
                 response = self._handle_discover(request)
             elif command == 'hello':
-                response = self._handle_hello(address,request)
+                response = self._handle_hello(request)
             else:
                 response = {'status': 'error', 'message': 'Unknown command'}
                 
+            print(response)
             client_socket.send(json.dumps(response).encode('utf-8'))
             
         except json.JSONDecodeError:
@@ -95,10 +96,10 @@ class Tracker:
         finally:
             client_socket.close()
             
-    def _handle_hello (self,address:tuple[int,str],request: dict):
+    def _handle_hello (self,request: dict):
         with self.lock: 
-            self.peers[(address[0],request['port'])] = True 
-            print(f"User {(request["IP"],request['port'])} have connected and {self.peers[(address[0],request['port'])]} is here !!")
+            self.peers[(request["IP"],request['port'])] = True 
+            print(f"User {(request["IP"],request['port'])} have connected and {self.peers[(request["IP"],request["port"])]} is here !!")
             
         return {
                 'status': 'success'
@@ -113,11 +114,12 @@ class Tracker:
                 'info': inf,
                 'size': self.torrents[inf].size,
                 'port': int 
+                'IP': str
         
         """
         """Handle peer registration with file information"""
         
-        conn_addr = (address[0],request['port'])
+        conn_addr = (request['IP'],request['port'])
         print(f"info: {request['info']}")
         
         with self.lock:  

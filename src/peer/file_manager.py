@@ -236,6 +236,7 @@ class FileManager:
             self,
             file: str,
             port: int,
+            ip: str
     )->None: 
         
         inf = CLI.sha1_encode(file)
@@ -245,7 +246,8 @@ class FileManager:
                 'name': self.torrents[inf].file_name,
                 'info': inf, 
                 'size': self.torrents[inf].size,
-                'port': port
+                'port': port,
+                'IP': ip, 
             }
         
         #   TODO 
@@ -265,6 +267,6 @@ class FileManager:
                 'name': self.torrents[inf].file_name,
                 'info': inf,
                 'size': self.torrents[inf].size,
-                'port': port
-                
+                'port': port,
+                'IP': ip, 
         }

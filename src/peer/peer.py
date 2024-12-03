@@ -27,6 +27,7 @@ class Peer:
         # self.listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.thread_pool = []
         self.fileManager = FileManager(self.config["user_name"])
+        self.IP = self.getIP()
         # self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM).bind(('localhod',self.config['tracker_port']))
         self.sayHitoTracker()
 
@@ -38,8 +39,7 @@ class Peer:
             return local_ip 
             
     def sayHitoTracker(self): 
-        myIP = self.getIP() 
-        ans = peer_cli.HelloWord(self.config['user_name'],self.config['user_port'], myIP)
+        ans = peer_cli.HelloWord(self.config['user_name'],self.config['user_port'], self.IP)
         try: 
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.config['tracker_host'],self.config['tracker_port']))
@@ -253,7 +253,7 @@ class Peer:
                 s.connect((self.config["tracker_host"],self.config["tracker_port"])) 
                 #   TODO
                 #   CHANGE THE MESSAGE TO FIT TRACKER IN peer_cli
-                message = self.fileManager.newFiles(file,self.config['user_port'])
+                message = self.fileManager.newFiles(file,self.config['user_port'],self.IP)
                 print(message)
                 
                 # message = peer_cli.announce(file)
