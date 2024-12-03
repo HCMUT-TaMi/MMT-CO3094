@@ -7,11 +7,13 @@ console = Console()
 
 def HelloWord(
     name: str, 
-    port: int
+    port: int, 
+    ip: str
 )->dict:
     return{
         "type": "hello",
         "info": name,
+        "IP": ip, 
         "port": port
     }
 

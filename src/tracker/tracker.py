@@ -15,9 +15,11 @@ class FileInfo:
     
     
 class Tracker:
-    def __init__(self, host: str = 'localhost', port: int = 6880):
+    def __init__(self, host: str = '0.0.0.0', port: int = 6880):
         self.host = host
         self.port = port
+        
+        print(host)
         
         # Track files and their fragments across peers
         self.files: Dict[str, FileInfo] = {}  # file_hash -> FileInfo
@@ -96,7 +98,7 @@ class Tracker:
     def _handle_hello (self,address:tuple[int,str],request: dict):
         with self.lock: 
             self.peers[(address[0],request['port'])] = True 
-            print(f"User {(address[0],request['port'])} have connected and {self.peers[(address[0],request['port'])]} is here !!")
+            print(f"User {(request["IP"],request['port'])} have connected and {self.peers[(address[0],request['port'])]} is here !!")
             
         return {
                 'status': 'success'
@@ -203,7 +205,7 @@ class Tracker:
 
 def main():
     # Create and start tracker
-    tracker = Tracker('localhost', 6880)
+    tracker = Tracker('0.0.0.0', 6880)
     try:
         tracker.start()
     except KeyboardInterrupt:

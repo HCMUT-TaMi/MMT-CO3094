@@ -30,8 +30,16 @@ class Peer:
         # self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM).bind(('localhod',self.config['tracker_port']))
         self.sayHitoTracker()
 
+
+    def getIP(self): 
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80)) 
+            local_ip = s.getsockname()[0]
+            return local_ip 
+            
     def sayHitoTracker(self): 
-        ans = peer_cli.HelloWord(self.config['user_name'],self.config['user_port'])
+        myIP = self.getIP() 
+        ans = peer_cli.HelloWord(self.config['user_name'],self.config['user_port'], myIP)
         try: 
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.config['tracker_host'],self.config['tracker_port']))
@@ -220,12 +228,11 @@ class Peer:
     def _listen_handle(self): 
         try: 
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                
-                s.bind(('localhost',self.config['user_port']))
+                s.bind(('0.0.0.0',self.config['user_port']))
                 s.listen(9)
                 
                 with self.lock: 
-                    print("Socket setup complete!")
+                    print("Listening Socket setup complete!")
                     
                 while self.online:
                     conn, addr = s.accept()
