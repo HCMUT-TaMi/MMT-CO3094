@@ -161,7 +161,7 @@ class FileManager:
         files = self.torrents[CLI.sha1_encode(info)]
         fragment_lists = [i for i in files.fragment_hash.keys()]
         
-        print(f"we have: {fragment_lists}")
+        # print(f"we have: {fragment_lists}")
         return {
             "type": "Found", 
             "frags": fragment_lists,  #interger lists

@@ -204,22 +204,33 @@ class Peer:
             with conn: 
                 data = conn.recv(512*1024)
                 data = json.loads(data.decode("utf-8"))
+                print(data)
                 if data['type'] == "discovery":
                     torrent = self.fileManager.looksfor(data['info'])
                     message = peer_cli.ret_discovery(data['info'],torrent['frags'],torrent['fragsNum'])
+                    print(message)
                     conn.send(json.dumps(message).encode("utf-8"))
 
                 elif data['type'] == 'download': 
                     frags = peer_cli.bit_decode(data['fragments'])          
                     for frag in frags: 
                         print(f"sending Frag# {frag}")
+                        conn.recv(2)
                         frags_data = self.fileManager.getfrags(data['info'],[frag])
-                        time.sleep(0.05)
                         
+                        conn.send(b"sent")
+                        time.sleep(0.02)
+                        
+                        print("i am sending size to you!")
                         conn.send(len(frags_data).to_bytes(4,'big'))
+                        
+                        print("i am waiting for replies")
+                        conn.recv(2)
                         # Establish a socket connection
                         # print(len(frags_data))
+                        # time.sleep(0.05)
                         
+                        print("i will sent you file!")
                         conn.sendall(frags_data)
         except Exception as e:
             print(f"Details: {e}") 

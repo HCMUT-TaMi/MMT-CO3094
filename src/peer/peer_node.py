@@ -114,8 +114,6 @@ class Node:
                 s.send(json.dumps(message).encode('utf-8'))
                 bitwise = s.recv(512*1024).decode() 
                 bitwise = json.loads(bitwise)
-                print(bitwise)
-
                 #   Expect to get the Bitwise in datas 
                 with self.lock: 
                     self._BitTrack.update({(peer[0],peer[1]):bitwise["frags"]}) 
@@ -200,15 +198,24 @@ class Node:
                 s.connect(peer)
                 message = CLI.download(self._File,CLI.bit_encode(frags,self._Total_Fragment))
                 s.send(json.dumps(message).encode('utf-8'))
+                time.sleep(0.5)
                 
                 while count != need: 
                     fragment_data = b""
-                    expected_size = min(self.frag_size, self.len - self.frag_size * (frags[count] - 1)) 
-
-                    lol = s.recv(4)
-                    expected_size = int.from_bytes(lol,'big')
+                    lol_data = b"" 
+                    
+                    print("sending the ACK")
+                    s.send(b"OK")   # send OK
+                    
+                    print("Waiting for Reply")
+                    s.recv(4)   # send that user have been received
+                    
+                    print("i have received the sent ACK and wait for size")
+                    lol_data = s.recv(4)
+                    expected_size = int.from_bytes(lol_data,'big')
                     print(f"expected for downloading: {expected_size}") 
                     
+                    s.send(b"OK")
                     # mess = {
                     #         "frag": frag, 
                     #         "data": frags_data, 
@@ -218,7 +225,7 @@ class Node:
                     
                     
                     while len(fragment_data) < expected_size:
-                        chunk = s.recv(expected_size)
+                        chunk = s.recv(expected_size - len(fragment_data))
                         fragment_data += chunk
                         if(len(fragment_data) == self.len - self.frag_size * (frags[len(frags) - 1] - 1)):
                             break
