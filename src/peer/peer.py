@@ -166,10 +166,14 @@ class Peer:
     def download(
             self,
             file: str, 
+            progress_callback=None
     )->None:
         data = self._user_handle_askTracker(file)
 
         #   TODO cout when no file in tracker 
+        if not data:
+            console.print("[bold red]File not found on tracker[/]")
+            return
 
         torrent = self.fileManager.looksfor(file)
         if torrent['type'] == "Found": 
@@ -186,7 +190,8 @@ class Peer:
             want_fragment, 
             file, 
             data["size"],
-            self.fileManager
+            self.fileManager,
+            progress_callback=progress_callback
         )
 
         #   Start Dowloading

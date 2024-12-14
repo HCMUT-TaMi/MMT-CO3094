@@ -52,6 +52,12 @@ class PeerGUI:
         self.announce_entry = ttk.Entry(operations_frame)
         self.announce_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5)
         ttk.Button(operations_frame, text="Announce", command=self.announce_file).grid(row=1, column=2, padx=5)
+
+        # Proccess bar Section
+        self.progress_label = ttk.Label(operations_frame, text="Download Progress:")
+        self.progress_label.grid(row=2, column=0, padx=5, pady=5)
+        self.progress_bar = ttk.Progressbar(operations_frame, orient="horizontal", length=300, mode="determinate")
+        self.progress_bar.grid(row=2, column=1, sticky=(tk.W, tk.E), padx=5)
         
         # Log Frame
         log_frame = ttk.LabelFrame(main_container, text="Activity Log", padding="5")
@@ -92,12 +98,24 @@ class PeerGUI:
         if not file:
             messagebox.showwarning("Warning", "Please enter a file name!")
             return
+        
+        def update_progress(downloaded, total):
+            progress = (downloaded / total) * 100
+            self.progress_bar["value"] = progress
+            # self.log_message(f"Progress: {progress:.2f}%")
+            self.log_message(f"Progress: {downloaded}/{total} fragments downloaded")
+
+            if downloaded == total:
+                self.progress_bar["value"] = 0  # Reset progress bar
+                messagebox.showinfo("Download Complete", f"The file '{file}' has been downloaded successfully!")
+                self.log_message(f"Download complete: {file}")
             
         def download_thread():
             try:
                 self.log_message(f"Starting download of {file}")
-                self.peer.download(file)
+                self.peer.download(file, progress_callback=update_progress)
                 self.log_message(f"Download complete: {file}")
+                # self.progress_bar["value"] = 100
             except Exception as e:
                 self.log_message(f"Download error: {str(e)}")
                 

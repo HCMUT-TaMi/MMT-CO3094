@@ -99,7 +99,7 @@ class Tracker:
     def _handle_hello (self,request: dict):
         with self.lock: 
             self.peers[(request["IP"],request['port'])] = True 
-            print(f"User {(request["IP"],request['port'])} have connected and {self.peers[(request["IP"],request["port"])]} is here !!")
+            print(f"User {request['IP'], request['port']} have connected and {self.peers[(request['IP'], request['port'])]} is here !!")
             
         return {
                 'status': 'success'

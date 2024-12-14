@@ -4,6 +4,6 @@
     "user_port": 1235, 
     "user_name": "P2",
     "piece_size": 524288,
-    "tracker_host": "localhost",
+    "tracker_host": "192.168.1.164",
     "tracker_port": 6880 
 }

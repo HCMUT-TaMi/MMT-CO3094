@@ -18,7 +18,8 @@ class Node:
             want_fragment: List[int],
             file_name: str, #   Wanted file by User, Not have been hash sadly for some reason
             len : int, 
-            manage: FileManager
+            manage: FileManager,
+            progress_callback=None
         ): 
 
         #   Peer Tracking
@@ -37,6 +38,9 @@ class Node:
         #   Thread Safety
         self.lock = threading.Lock()  
         self.manage = manage
+
+        self.progress_callback = progress_callback  # Store the callback
+        self.downloaded_fragments = 0  # Track fragments downloaded
 
     """"
         Start(input): 
@@ -192,6 +196,7 @@ class Node:
 
     def download(self, peer: Tuple[str, int], frags: list[int]):
         need = len(frags)
+        total_fragments = len(frags)
         count = 0
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -241,7 +246,17 @@ class Node:
                          }
                                         
                     count += 1 
-                    threading.Thread(target=self.manage.addFragment, args=(fragList,fragment_data,),daemon=True).start()
+                    self.downloaded_fragments += 1
+
+                    # Update progress every 1 fragments
+                    if self.progress_callback and self.downloaded_fragments % 1 == 0:
+                        self.progress_callback(count, total_fragments)
+
+                    threading.Thread(
+                        target=self.manage.addFragment, 
+                        args=(fragList, fragment_data,), 
+                        daemon=True
+                    ).start()
 
         except ConnectionError as e:
             print(f"Connection error: {e}")
