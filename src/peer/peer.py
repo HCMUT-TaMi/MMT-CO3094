@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 import hashlib
 from rich.console import Console
 from rich.table import Table
+import random
 
 import sys
 from file_manager import FileManager
@@ -107,9 +108,26 @@ class Peer:
 
                 elif choice == "Quit":
                     console.print("[bold yellow]Exiting...[/]")
-                    self.online = False  
+                    self.online = False 
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s: 
+                        s.connect((self.config["tracker_host"],self.config["tracker_port"])) 
+                        
+                        message = {
+                            "type": "bye", 
+                            "IP": self.IP, 
+                            "port": self.config["user_port"]
+                        }
+                        print(message)
+                        
+                        # message = peer_cli.announce(file)
+                        s.send(json.dumps(message).encode("utf-8"))
                     break
                 
+                elif choice == "Throw": 
+                    console.print("[bold blue]Entering the file you want to Throw: [/]")
+                    inp = console.input()
+                    console.print("[red]Working on it...[/]")
+                    threading.Thread(target=self.throw,args=(inp,),daemon=True).start()
                 elif choice == "Dump": 
                     self.fileManager.dump()
                     
@@ -119,6 +137,73 @@ class Peer:
     #   =======================================================
     #                   User_handle 
     #   =======================================================
+        
+        
+    #   ONLY THROW WHEN YOU ARE A SEEDER !
+    def throw(self,input): 
+        getFile = self.fileManager.getFileAt(peer_cli.sha1_encode(input))
+        
+        #get peer alive
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s: 
+            s.connect((self.config["tracker_host"],self.config["tracker_port"]))
+            message = {
+                "type" : "alive"
+            }
+            s.send(json.dumps(message).encode("utf-8")) 
+            peer_alive = json.loads(s.recv(1024).decode("utf-8"))["peers"]
+        
+            for _ in range(1,20): 
+                Peer_random = random.randint(0,len(peer_alive)-1) 
+                Peer_random = peer_alive[Peer_random]
+                print(Peer_random)
+                if Peer_random[0] == self.IP and Peer_random[1] == self.config['user_port']: 
+                    continue
+                
+                size = getFile['size']
+                Frags_random = random.randint(1,(int)(size/(512*1024))-1)
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s: 
+                        s.connect((Peer_random[0],Peer_random[1])) 
+                        data = self.fileManager.getfrags(input,[Frags_random])
+                        message = {
+                            "type": "throw", 
+                            "size": getFile['size'],
+                            "name": getFile['name'],
+                            "frags": Frags_random, 
+                        }
+                        
+                        s.sendall(json.dumps(message).encode("utf-8"))
+                        time.sleep(0.5) 
+                        s.sendall(data)
+                        
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s: 
+                        s.connect((self.config["tracker_host"],self.config["tracker_port"]))
+                        message = {
+                            'type': 'announce',
+                            'name': input,
+                            'info': peer_cli.sha1_encode(input), 
+                            'size': size,
+                            'port': Peer_random[1],
+                            'IP': Peer_random[0], 
+                        }
+                        s.send(json.dumps(message).encode("utf-8"))
+                        
+                except Exception as e:
+                    print(f"Details: {e}") 
+                    
+    def bye(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s: 
+            s.connect((self.config["tracker_host"],self.config["tracker_port"])) 
+                        
+            message = {
+                "type": "bye", 
+                "IP": self.IP, 
+                "port": self.config["user_port"]
+            }                    
+            
+            self.online = False
+            
+            s.send(json.dumps(message).encode("utf-8"))
 
     def sha1_encode(input_string:str):
         encoded_string = input_string.encode('utf-8')
@@ -166,6 +251,7 @@ class Peer:
     def download(
             self,
             file: str, 
+            progress_callback=None, 
     )->None:
         data = self._user_handle_askTracker(file)
 
@@ -173,7 +259,7 @@ class Peer:
 
         torrent = self.fileManager.looksfor(file)
         if torrent['type'] == "Found": 
-            want_fragment = [i for i in range(1,torrent["fragsNum"] + 1) if i not in torrent["frags"]]
+            want_fragment = [i for i in range(1,(int)(torrent["size"]/(512*1024)) + 2) if i not in torrent["frags"]]
         else:
             want_fragment = [i for i in range(1,(int)(data["size"]/(512*1024)) + 2)]
         
@@ -186,7 +272,8 @@ class Peer:
             want_fragment, 
             file, 
             data["size"],
-            self.fileManager
+            self.fileManager,
+            progress_callback=progress_callback
         )
 
         #   Start Dowloading
@@ -204,34 +291,61 @@ class Peer:
             with conn: 
                 data = conn.recv(512*1024)
                 data = json.loads(data.decode("utf-8"))
+
                 print(data)
                 if data['type'] == "discovery":
                     torrent = self.fileManager.looksfor(data['info'])
-                    message = peer_cli.ret_discovery(data['info'],torrent['frags'],torrent['fragsNum'])
+                    frag_num = (int)(torrent['size'] / (512*1024) + 1) 
+                    message = peer_cli.ret_discovery(data['info'],torrent['frags'],frag_num)
                     print(message)
                     conn.send(json.dumps(message).encode("utf-8"))
 
                 elif data['type'] == 'download': 
                     frags = peer_cli.bit_decode(data['fragments'])          
                     for frag in frags: 
-                        print(f"sending Frag# {frag}")
+                        print(f"sending Frag# {frag} of file {data['info']} to {addr}")
                         conn.recv(2)
                         frags_data = self.fileManager.getfrags(data['info'],[frag])
                         
                         conn.send(b"sent")
                         time.sleep(0.02)
                         
-                        print("i am sending size to you!")
                         conn.send(len(frags_data).to_bytes(4,'big'))
                         
-                        print("i am waiting for replies")
                         conn.recv(2)
                         # Establish a socket connection
                         # print(len(frags_data))
-                        # time.sleep(0.05)
-                        
-                        print("i will sent you file!")
+                        # time.sleep(0.05)                      
                         conn.sendall(frags_data)
+                        
+                        if not self.online: 
+                            break 
+                        
+                        
+            # message = {
+            #             "type": "throw", 
+            #             "size": getFile['size'],
+            #             "name": getFile['name'],
+            #             "frags": Frags_random, 
+            #             "data": data
+            #         }
+            
+                elif data['type'] == 'throw': 
+                    print(data)
+                    self.fileManager.creatEmptyFile(data['name'],data['size'])
+                    
+                    new_data = conn.recv(512*1024)
+                    
+                    fragList = {
+                             "info": f"{peer_cli.sha1_encode(data['name'])}_{data['frags']}", 
+                             "name": f"{peer_cli.sha1_encode(data['name'])}_{data['frags']}",
+                             "parent": peer_cli.sha1_encode(data['name']), 
+                             "size": data["size"],
+                             "frag_num": data['frags']
+                    }
+                    
+                    self.fileManager.addFragment(fragList,new_data)
+                    
         except Exception as e:
             print(f"Details: {e}") 
                     
@@ -256,7 +370,8 @@ class Peer:
                     
         except Exception as e:
             print(f"Details: {e}")
-                    
+            
+                
     def announce(self,
                  file: str):
         try:  

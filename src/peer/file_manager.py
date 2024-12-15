@@ -71,8 +71,17 @@ class FileManager:
                 'size': self.torrents[inf].size
             }
             
+        else:
+            return {
+                'type': '!Found' 
+            }
+            
     def creatEmptyFile(self, name:str, size: int): 
         path = os.path.join(self.files_path,name)
+        #   If there is file then get off 
+        if CLI.sha1_encode(name) in self.torrents.keys():
+            return 
+        
         with open(path, 'wb') as f:
             f.seek(size - 1)
             f.write(b'\0')
@@ -116,14 +125,13 @@ class FileManager:
             
         parent_torrent = self.torrents[info["parent"]]
         #   Get new Frag_num = Hash_str 
+        print(f"{info["frag_num"]} Updated" )
         parent_torrent.fragment_hash.update({info["frag_num"] : info["info"]})
 
         # pathToFrags = os.path.join(self.frags_path,info["info"])
         pathToParent = os.path.join(self.files_path,self.torrents[info["parent"]].file_name)
         offset = (info["frag_num"] - 1) * 512 * 1024
         
-        print("file is writting !!!!")
-
         #   Update Real File          
         try:
                 #   UPDATE Parent file always exits as handle by Peer_node, HANDLE IF WANTED 
@@ -193,7 +201,7 @@ class FileManager:
                 if not frags_data: 
                     return 
 
-            return frags_data
+        return frags_data
         
     def breakFile(
         self,
@@ -230,8 +238,6 @@ class FileManager:
         for frg in self.torrents.keys():
             print(f"{frg}: {self.torrents[frg].file_name}\n {self.torrents[frg].fragment_hash}\n {self.torrents[frg].total_fragments}\n") 
               
-        
-        
     def newFiles(
             self,
             file: str,

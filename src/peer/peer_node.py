@@ -18,7 +18,9 @@ class Node:
             want_fragment: List[int],
             file_name: str, #   Wanted file by User, Not have been hash sadly for some reason
             len : int, 
-            manage: FileManager
+            manage: FileManager,
+            progress_callback=None
+
         ): 
 
         #   Peer Tracking
@@ -37,6 +39,9 @@ class Node:
         #   Thread Safety
         self.lock = threading.Lock()  
         self.manage = manage
+        
+        self.progress_callback = progress_callback  # Store the callback
+        self.downloaded_fragments = 0  # Track fragments downloaded
 
     """"
         Start(input): 
@@ -50,6 +55,7 @@ class Node:
             self,
         ):
         try: 
+            print(f"Receive Peers lists of: {self._Peers}, start to Discover!")
             start_time = time.time()
         #   DISCOVERY STAGE
 
@@ -68,11 +74,12 @@ class Node:
         #   CHOOSING  STAGE
             #   Dowload_list release dictionary of peers and corresponding fragments
             with self.lock: 
+                print(f"After Discovery stage we get: {self._BitTrack}")
                 print("GET LIST STAGE")
             dowload_list = self.rarest_first() 
             
             with self.lock: 
-                print(f"Download List: {dowload_list}") 
+                # print(f"Download List: {dowload_list}") 
                 print("Download stage")
   
         #   DOWNLOAD  STAGE
@@ -82,7 +89,7 @@ class Node:
 
             #   Create Threads for each peers and corresponding fragments in Interger 
             for peer,frags in dowload_list.items(): 
-                thread = threading.Thread(target = self.download, args = (peer,frags,))
+                thread = threading.Thread(target = self.download, args = (peer,frags,start_time))
                 Dowload_Threads.append(thread)
                 thread.start()
 
@@ -190,7 +197,7 @@ class Node:
     #         f.write(b'\0')
     
 
-    def download(self, peer: Tuple[str, int], frags: list[int]):
+    def download(self, peer: Tuple[str, int], frags: list[int], start_time):
         need = len(frags)
         count = 0
         try:
@@ -204,16 +211,16 @@ class Node:
                     fragment_data = b""
                     lol_data = b"" 
                     
-                    print("sending the ACK")
+                    # print("sending the ACK")
                     s.send(b"OK")   # send OK
                     
-                    print("Waiting for Reply")
+                    # print("Waiting for Reply")
                     s.recv(4)   # send that user have been received
                     
-                    print("i have received the sent ACK and wait for size")
+                    # print("i have received the sent ACK and wait for size")
                     lol_data = s.recv(4)
                     expected_size = int.from_bytes(lol_data,'big')
-                    print(f"expected for downloading: {expected_size}") 
+                    # print(f"expected fragment {frags[count]} from peer {peer} for downloading: {expected_size} bytes") 
                     
                     s.send(b"OK")
                     # mess = {
@@ -230,7 +237,7 @@ class Node:
                         if(len(fragment_data) == self.len - self.frag_size * (frags[len(frags) - 1] - 1)):
                             break
                     
-                    print(f"Receiving {frags[count]} from {peer}")
+                    print(f"At: {time.time() - start_time} we receiving {frags[count]} from {peer}")
                     
                     fragList = {
                              "info": f"{CLI.sha1_encode(self._File)}_{frags[count]}", 
@@ -239,10 +246,15 @@ class Node:
                              "size": expected_size,
                              "frag_num": frags[count] 
                          }
-                                        
-                    count += 1 
+                    
+                    if self.progress_callback:
+                        self.progress_callback(count, need)
+                    
+                    time.sleep(0.25)          
                     threading.Thread(target=self.manage.addFragment, args=(fragList,fragment_data,),daemon=True).start()
-
+                    count += 1 
+                    
+                
         except ConnectionError as e:
             print(f"Connection error: {e}")
         except Exception as e:
